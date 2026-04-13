@@ -535,9 +535,8 @@ static void removeIntrinsicUsers(AllocaInst *AI) {
     }
 
     if (!I->getType()->isVoidTy()) {
-      // The only users of this bitcast/GEP instruction are lifetime intrinsics.
-      // Follow the use/def chain to erase them now instead of leaving it for
-      // dead code elimination later.
+      // Follow the use/def chain to erase users of this instruction now
+      // instead of leaving it for dead code elimination later.
       for (Use &UU : llvm::make_early_inc_range(I->uses())) {
         Instruction *Inst = cast<Instruction>(UU.getUser());
 
@@ -546,9 +545,20 @@ static void removeIntrinsicUsers(AllocaInst *AI) {
           Inst->dropDroppableUse(UU);
           continue;
         }
+
         Inst->eraseFromParent();
       }
     }
+
+    // Same as above for lifetime intrinsics directly on the alloca.
+    if (auto *II = dyn_cast<IntrinsicInst>(I))
+      if (II->isLifetimeStartOrEnd()) {
+        auto *Store = new StoreInst(UndefValue::get(AI->getAllocatedType()), AI,
+                                    /*isVolatile=*/false, AI->getAlign(),
+                                    I->getIterator());
+        Store->setDebugLoc(II->getDebugLoc());
+      }
+
     I->eraseFromParent();
   }
 }
